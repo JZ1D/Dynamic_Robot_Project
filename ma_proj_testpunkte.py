@@ -76,7 +76,7 @@ def move(r, point_data, motion_type, motion_speed):
         
 
 def main():
-    # 1. Verbindung aufbauen und initialisieren
+    #Verbindung und Initialisierung des Roboters
     print("Roboterverbindung aufbauen...")
     r = Robot()
     r.init_program()
@@ -89,13 +89,13 @@ def main():
         r.switch_to_automatic_mode()
         time.sleep(1.0)
 
-    # Globaler Geschwindigkeits-Override auf 20% Drosseln (Sicherheit!)
+    # Globaler Geschwindigkeits-Override auf 20% Drosseln
     r.set_override(0.2)
 
-    # 2. Punkte aus der Datenbank auslesen
+    #Punkte aus der Datenbank auslesen
     pts = load_all_points(r)
 
-    # 3. Bewegungsablauf ausführen
+    #Bewegungsablauf ausführen
     print("--- Beginn des Fahrprogramms")
 
     # MoveJoint auf Home (20% Achsgeschwindigkeit)
