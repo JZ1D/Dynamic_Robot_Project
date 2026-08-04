@@ -15,17 +15,113 @@ Ausfuehren:
     python tools/check_ik.py
 """
 
+import math
 import time
 import random
 
 import numpy as np
 from neurapy.robot import Robot
 
+# Ungefaehre Reichweite der LARA 5 in Metern - nur zur Plausibilitaetspruefung
+# der vom Controller gemeldeten Pose (siehe check_pose_plausible).
+MAX_REACH_M = 0.9
+
 
 def section(title):
     print("\n" + "=" * 60)
     print(title)
     print("=" * 60)
+
+
+def quat_pose_to_rpy(pose):
+    """[X,Y,Z,W,EX,EY,EZ] -> [X,Y,Z,R,P,Y], lokal berechnet.
+
+    Wird nur als letzte Rueckfallebene benutzt. Bevorzugt wird die RPY-Pose
+    direkt vom Controller geholt (compute_forward_kinematics), damit exakt
+    dieselbe Winkelkonvention wie in compute_inverse_kinematics gilt.
+    """
+    x, y, z, qw, qx, qy, qz = pose
+    n = math.sqrt(qw * qw + qx * qx + qy * qy + qz * qz)
+    if n == 0:
+        raise ValueError("Quaternion mit Norm 0")
+    qw, qx, qy, qz = qw / n, qx / n, qy / n, qz / n
+    roll = math.atan2(2 * (qw * qx + qy * qz), 1 - 2 * (qx * qx + qy * qy))
+    sinp = max(-1.0, min(1.0, 2 * (qw * qy - qz * qx)))
+    pitch = math.asin(sinp)
+    yaw = math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+    return [x, y, z, roll, pitch, yaw]
+
+
+def get_rpy_pose(r, base_joint):
+    """XYZRPY-Pose in der Konvention des Controllers besorgen.
+
+    Reihenfolge bewusst so gewaehlt:
+    1. compute_forward_kinematics - garantiert dieselbe Konvention wie die IK
+       und braucht keine separate Konvertierungsfunktion.
+    2. get_tcp_pose - liefert laut Doku bereits XYZRPY.
+    3. get_tcp_pose_quaternion + lokale Umrechnung (Konvention ungeprueft).
+    """
+    try:
+        pose = r.compute_forward_kinematics(
+            joint_angles=base_joint, representation="rpy"
+        )
+        if pose:
+            print("Pose-Quelle: compute_forward_kinematics(representation='rpy')")
+            return list(pose)
+    except Exception as exc:
+        print("compute_forward_kinematics nicht nutzbar:", exc)
+
+    try:
+        pose = r.get_tcp_pose()
+        if pose and len(pose) == 6:
+            print("Pose-Quelle: get_tcp_pose()")
+            return list(pose)
+    except Exception as exc:
+        print("get_tcp_pose nicht nutzbar:", exc)
+
+    pose = r.get_tcp_pose_quaternion()
+    print("Pose-Quelle: get_tcp_pose_quaternion() + lokale Umrechnung")
+    print("  ACHTUNG: RPY-Konvention lokal angenommen (ZYX) und nicht gegen")
+    print("  den Controller verifiziert - Ergebnisse mit Vorsicht bewerten.")
+    return quat_pose_to_rpy(list(pose))
+
+
+def check_pose_plausible(r, pose, joint):
+    """Erkennt Platzhalter-/Dummy-Werte, bevor sinnlose Tests laufen."""
+    section("Vorpruefung: Liefert der Controller echte Werte?")
+    dist = math.sqrt(pose[0] ** 2 + pose[1] ** 2 + pose[2] ** 2)
+    print("Abstand TCP vom Roboterursprung: %.3f m" % dist)
+
+    try:
+        in_sim = r.is_robot_in_simulation()
+        print("is_robot_in_simulation():", in_sim)
+    except Exception as exc:
+        print("is_robot_in_simulation() nicht abfragbar:", exc)
+
+    problems = []
+    if dist > MAX_REACH_M:
+        problems.append(
+            "TCP-Abstand %.3f m liegt ausserhalb der LARA-5-Reichweite "
+            "(~%.1f m)." % (dist, MAX_REACH_M)
+        )
+    if all(abs(q) < 1e-9 for q in joint):
+        problems.append("Alle Gelenkwinkel exakt 0 - untypisch fuer eine reale Pose.")
+
+    if problems:
+        print("\nWARNUNG - die gemeldeten Werte wirken wie Platzhalter:")
+        for p in problems:
+            print("  -", p)
+        print(
+            "\nMoegliche Ursachen: Controller im Simulations-/Nicht-"
+            "initialisierten\nZustand, kein Programm aktiv (init_program()), "
+            "oder der Roboter ist\nnicht betriebsbereit. Die nachfolgenden "
+            "IK-Tests waeren auf solchen\nWerten wertlos, weil jedes Ziel "
+            "ausserhalb des Arbeitsraums laege.\n"
+        )
+        return False
+
+    print("OK: Werte wirken plausibel.")
+    return True
 
 
 def test_tool_offset(r):
@@ -204,19 +300,19 @@ def test_timing(r, base_pose, base_joint, n=20):
 
 def main():
     r = Robot()
-    base_pose = r.get_tcp_pose_quaternion()
-    #base_pose = [1.0, 2.0, 3.0, 0.707, 0.0, 0.707, 0.0]  # Beispiel-Pose (XYZ + Quaternion)
-    print("Aktuelle TCP-Pose (Quaternion):", base_pose)
-    print(type(base_pose))
-    # Falls die API hier RPY statt Quaternion liefert, ggf. konvertieren -
-    # zur Sicherheit ueber convert_quaternion_to_euler_pose auf RPY normieren:
-    if len(base_pose) == 7 and base_pose is not None:
-        base_pose = r.convert_quaternion_to_euler_pose(base_pose)
-        print("Konvertierte TCP-Pose (RPY):", base_pose)
-    base_joint = r.get_current_joint_angles()
 
-    print("Aktuelle Pose (XYZRPY):", np.round(base_pose, 4))
+    base_joint = r.get_current_joint_angles()
+    base_pose = get_rpy_pose(r, base_joint)
+
+    print("\nAktuelle Pose (XYZRPY):", np.round(base_pose, 4))
     print("Aktuelle Gelenkwinkel :", np.round(base_joint, 4))
+
+    if not check_pose_plausible(r, base_pose, base_joint):
+        print(
+            "Abbruch: Erst die Verbindung/den Roboterzustand klaeren, dann\n"
+            "das Skript erneut ausfuehren."
+        )
+        return
 
     test_tool_offset(r)
     test_reachability(r, base_pose, base_joint)
