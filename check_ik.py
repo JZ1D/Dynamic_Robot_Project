@@ -14,7 +14,7 @@ rechnet die API relativ zum Flansch statt zur Greiferspitze (siehe Test 0).
 Ausfuehren:
     python tools/check_ik.py
 """
-
+ 
 import math
 import time
 import random
