@@ -82,8 +82,8 @@ def main():
     #Punkt erstellen im Koordinatensystem des ArUco-Markers --> wichtig: die Pose muss in der Form 
     # [x, y, z, a, b, c] übergeben werden (in Metern und Radiant)
     #a und c müssen auf math.pi (180°) gesetzt werden damit der Roboter ohne Drehung verfährt
-    r.create_point(name='Vorpos_cartesian', reference_frame_name='ArUco', 
-        target_end_effector_pose=[0.1, 0.2, 0.05, math.pi, 0.0, math.pi])  # , 3.14159])
+    r.create_point(name='Vorpos_cartesian', reference_frame_name='World', 
+                   target_end_effector_pose=[float(0.225), float(-0.31), float(0.2), math.pi, float(0.0), math.pi])
     cartesian_pose_world = r.get_point('Vorpos_cartesian', representation='Cartesian')
     print(f"Vorpos_cartesian (World): {cartesian_pose_world}")
     target_joints_Vorpos = r.compute_inverse_kinematics(target_pose=cartesian_pose_world, 
@@ -97,12 +97,11 @@ def main():
         r.delete_pose_in_DB("Hauptpos_cartesian")
     except Exception:
         pass
-    r.create_point(name='Hauptpos_cartesian',reference_frame_name='ArUco' , 
-                   target_end_effector_pose=[0.1, 0.2, 0.0, math.pi, 0, math.pi])
+    r.create_point(name='Hauptpos_cartesian',reference_frame_name='World', 
+                   target_end_effector_pose=[float(0.225), float(-0.31), float(0.05), math.pi, float(0.0), math.pi])
     move(r, r.get_point("Hauptpos_cartesian", representation="Cartesian"), "linear", 0.2)
 
     move(r, r.get_point("Vorpos_cartesian", representation="Cartesian"), "linear", 0.2)
-
     move(r, pts["home_joint"], "joint", 75.0)
     
 
